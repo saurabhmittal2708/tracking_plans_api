@@ -1,15 +1,29 @@
 from flask import Flask, jsonify, request, make_response
 from aws_controller import TrackingPlansTable, EventsTable
+from flask_cors import CORS, cross_origin
 
 tracking_plans_table = TrackingPlansTable()
 events_table = EventsTable()
 
 app = Flask(__name__)
+cors = CORS(app)
+app.config['CORS_HEADERS'] = 'Content-Type'
+
+
 @app.route('/tracking_plans/', methods=['GET', 'POST', 'DELETE', 'PUT'])
+@cross_origin()
 def tracking_plans():
     if request.method == 'GET':
         plan_id = request.args.get('plan_id', None)
-        return jsonify(tracking_plans_table.get_item(plan_id))
+        plans = tracking_plans_table.get_item(plan_id)
+        if plan_id:
+            return jsonify(enrich_with_event_defs(plans))
+        compund_plans = []
+        for plan in plans:
+            compund_plan = enrich_with_event_defs(plan)
+            compund_plans.append(compund_plan)
+        return jsonify(compund_plans)
+
     elif request.method == 'DELETE':
         plan_id = request.args.get('plan_id')
         return jsonify(tracking_plans_table.delete_item(plan_id))
@@ -58,6 +72,15 @@ def events():
         data = request.get_json()
         return jsonify(events_table.put(data))
 
+def enrich_with_event_defs(plan: dict) -> dict:
+    compund_plan = {'PlanId': plan['PlanId'],
+            'display_name': plan['display_name'],
+            'rules': {'events': []}
+            }
+    for event_name in plan['events']:
+        event_definition = events_table.get_item(event_name)
+        compund_plan['rules']['events'].append(event_definition)
+    return compund_plan
 
 
 if __name__ == '__main__':
